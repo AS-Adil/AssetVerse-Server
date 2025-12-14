@@ -26,7 +26,9 @@ async function run() {
 
     const db = client.db("assetverse");
     const packagesCollection = db.collection("packages");
+    const usersCollection = db.collection("users");
 
+    
     app.get("/packages", async (req, res) => {
       const result = await packagesCollection.find({}).toArray();
       res.send(result);
@@ -37,6 +39,31 @@ async function run() {
       const result = await packagesCollection.insertMany(packages);
       res.send(result);
     });
+
+
+    // user related api
+    app.post("/users", async (req, res) => {
+      const user = req.body;
+
+      const email = user.email;
+      const userExist = await usersCollection.findOne({ email });
+      if (userExist) {
+        return res.send({ message: "user already exist" });
+      }
+
+      const result = await usersCollection.insertOne(user);
+      res.send(result);
+    });
+
+
+
+
+
+
+
+
+
+
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
