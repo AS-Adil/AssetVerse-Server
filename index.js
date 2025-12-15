@@ -28,42 +28,52 @@ async function run() {
     const packagesCollection = db.collection("packages");
     const usersCollection = db.collection("users");
 
-    
     app.get("/packages", async (req, res) => {
-      const result = await packagesCollection.find({}).toArray();
-      res.send(result);
+      try {
+        const result = await packagesCollection.find({}).toArray();
+        res.send(result);
+      } catch (error) {
+        console.error("Error fetching packages:", error);
+        return res.status(500).send({ message: "Failed to fetch packages" });
+      }
     });
-
-    app.post("/packages", async (req, res) => {
-      const packages = req.body;
-      const result = await packagesCollection.insertMany(packages);
-      res.send(result);
-    });
-
 
     // user related api
     app.post("/users", async (req, res) => {
-      const user = req.body;
+      try {
+        const user = req.body;
 
-      const email = user.email;
-      const userExist = await usersCollection.findOne({ email });
-      if (userExist) {
-        return res.send({ message: "user already exist" });
+        const email = user.email;
+        const userExist = await usersCollection.findOne({ email });
+        if (userExist) {
+          return res.send({ message: "user already exist" });
+        }
+
+        const result = await usersCollection.insertOne(user);
+        res.send(result);
+      } catch (error) {
+        console.error("Error creating user:", error);
+        return res.status(500).send({ message: "Failed to create user" });
       }
-
-      const result = await usersCollection.insertOne(user);
-      res.send(result);
     });
 
+    // get use role 
+    app.get("/users/:email/role", async (req, res) => {
+      const { email } = req.params;
+      const query = { email };
 
+      try {
+        const user = await usersCollection.findOne(query);
 
+        return res.send({ role: user.role || "employee" });
+      } catch (error) {
+        console.error(error);
 
-
-
-
-
-
-
+        return res.status(500).send({
+          message: "Failed to fetch user role",
+        });
+      }
+    });
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
