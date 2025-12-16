@@ -27,6 +27,7 @@ async function run() {
     const db = client.db("assetverse");
     const packagesCollection = db.collection("packages");
     const usersCollection = db.collection("users");
+    const assetsCollection = db.collection("assets");
 
     app.get("/packages", async (req, res) => {
       try {
@@ -57,7 +58,7 @@ async function run() {
       }
     });
 
-    // get use role 
+    // get user role
     app.get("/users/:email/role", async (req, res) => {
       const { email } = req.params;
       const query = { email };
@@ -65,13 +66,47 @@ async function run() {
       try {
         const user = await usersCollection.findOne(query);
 
-        return res.send({ role: user.role || "employee" });
+        if (!user) {
+          return res.send({ role: "employee" });
+        }
+
+        res.send({ role: user.role });
       } catch (error) {
         console.error(error);
 
         return res.status(500).send({
           message: "Failed to fetch user role",
         });
+      }
+    });
+
+    app.get("/users", async (req, res) => {
+      const { email } = req.query;
+      const query = { email };
+
+      try {
+        const result = await usersCollection.findOne(query);
+        res.status(200).send(result);
+
+      } catch (error) {
+        console.log(error);
+        res.status(500).send({ message: "Failed to get user" });
+
+      }
+    });
+
+    // ----------- assets related api --------------
+
+    app.post("/assets", async (req, res) => {
+      const asset = req.body;
+      try {
+        const result = await assetsCollection.insertOne(asset);
+        res.status(201).send(result);
+
+      } catch (error) {
+        console.log(error);
+       res.status(500).send({ message: "Failed to add asset" });
+
       }
     });
 
