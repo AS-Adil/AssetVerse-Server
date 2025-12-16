@@ -111,9 +111,12 @@ async function run() {
     });
 
     app.get('/assets', async(req, res) =>{
-      const {email} =req.query;
+      const {email, searchText} =req.query;
       const query = {hrEmail: email}
       try{
+        if(searchText.trim()){
+          query.productName = { $regex: searchText, $options: "i" };
+        }
         const result = await assetsCollection.find(query).toArray()
         res.status(200).send(result)
       }catch(error){
