@@ -2,7 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const app = express();
 require("dotenv").config();
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const port = process.env.PORT || 3000;
 
 // middleware
@@ -87,11 +87,9 @@ async function run() {
       try {
         const result = await usersCollection.findOne(query);
         res.status(200).send(result);
-
       } catch (error) {
         console.log(error);
         res.status(500).send({ message: "Failed to get user" });
-
       }
     });
 
@@ -102,31 +100,38 @@ async function run() {
       try {
         const result = await assetsCollection.insertOne(asset);
         res.status(201).send(result);
-
       } catch (error) {
         console.log(error);
-       res.status(500).send({ message: "Failed to add asset" });
-
+        res.status(500).send({ message: "Failed to add asset" });
       }
     });
 
-    app.get('/assets', async(req, res) =>{
-      const {email, searchText} =req.query;
-      const query = {hrEmail: email}
-      try{
-        if(searchText.trim()){
+    app.get("/assets", async (req, res) => {
+      const { email, searchText } = req.query;
+      const query = { hrEmail: email };
+      try {
+        if (searchText.trim()) {
           query.productName = { $regex: searchText, $options: "i" };
         }
-        const result = await assetsCollection.find(query).toArray()
-        res.status(200).send(result)
-      }catch(error){
+        const result = await assetsCollection.find(query).toArray();
+        res.status(200).send(result);
+      } catch (error) {
         console.log(error);
         res.status(500).send({ message: "Failed to get Assets" });
-
       }
-    })
+    });
 
-
+    app.delete("/assets/:id", async (req, res) => {
+      const id = req.params.id;
+      try {
+        const query = { _id: new ObjectId(id) };
+        const result = await assetsCollection.deleteOne(query);
+        res.status(200).send(result);
+      } catch (error) {
+        console.log(error);
+        res.status(500).send({ message: "Failed to delete asset", error: error.message });
+      }
+    });
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
