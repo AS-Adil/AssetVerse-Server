@@ -110,6 +110,21 @@ async function run() {
       }
     });
 
+    app.get('/assets', async(req, res) =>{
+      const {email} =req.query;
+      const query = {hrEmail: email}
+      try{
+        const result = await assetsCollection.find(query).toArray()
+        res.status(200).send(result)
+      }catch(error){
+        console.log(error);
+        res.status(500).send({ message: "Failed to get Assets" });
+
+      }
+    })
+
+
+
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log(
