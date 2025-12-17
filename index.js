@@ -129,7 +129,31 @@ async function run() {
         res.status(200).send(result);
       } catch (error) {
         console.log(error);
-        res.status(500).send({ message: "Failed to delete asset", error: error.message });
+        res
+          .status(500)
+          .send({ message: "Failed to delete asset", error: error.message });
+      }
+    });
+
+    app.patch("/assets/:id", async (req, res) => {
+      const id = req.params.id;
+      const updatedData = req.body;
+
+      try {
+        const query = { _id: new ObjectId(id) };
+
+        const updatedDoc = {
+          $set: {
+            ...updatedData,
+            updatedAt: new Date(),
+          },
+        };
+
+        const result = await assetsCollection.updateOne(query, updatedDoc);
+        res.status(200).send(result);
+      } catch (error) {
+        console.log(error);
+        res.status(500).send({ message: "Failed to update asset" });
       }
     });
 
