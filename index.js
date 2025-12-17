@@ -28,6 +28,7 @@ async function run() {
     const packagesCollection = db.collection("packages");
     const usersCollection = db.collection("users");
     const assetsCollection = db.collection("assets");
+    const requestsCollection = db.collection("requests");
 
     app.get("/packages", async (req, res) => {
       try {
@@ -108,9 +109,12 @@ async function run() {
 
     app.get("/assets", async (req, res) => {
       const { email, searchText } = req.query;
-      const query = { hrEmail: email };
+      let query = {};
+      if (email) {
+        query.hrEmail = email;
+      }
       try {
-        if (searchText.trim()) {
+        if (searchText && searchText.trim()) {
           query.productName = { $regex: searchText, $options: "i" };
         }
         const result = await assetsCollection.find(query).toArray();
@@ -154,6 +158,18 @@ async function run() {
       } catch (error) {
         console.log(error);
         res.status(500).send({ message: "Failed to update asset" });
+      }
+    });
+
+    // requests related api
+    app.post("/requests", async (req, res) => {
+      const request = req.body;
+      try {  
+        const result = await requestsCollection.insertOne(request);
+        res.status(201).send(result); 
+      } catch (error) {
+        console.error("Failed to create request:", error);
+        res.status(500).send({ message: "Failed to create request"});
       }
     });
 
