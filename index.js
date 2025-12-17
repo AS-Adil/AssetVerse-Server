@@ -285,6 +285,34 @@ async function run() {
       }
     });
 
+
+    // Reject Rquest 
+    app.patch("/requests/:id/reject", async (req, res) => {
+  const requestId = req.params.id;
+  try {
+    const result = await requestsCollection.updateOne(
+      { _id: new ObjectId(requestId), requestStatus: "pending" },
+      {
+        $set: {
+          requestStatus: "Rejected",
+        },
+      }
+    );
+
+    if (result.modifiedCount === 0) {
+      return res
+        .status(400)
+        .send({ message: "Request already processed or not found" });
+    }
+
+    res.status(200).send({ message: "Request rejected successfully" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).send({ message: "Reject failed" });
+  }
+});
+
+
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log(
