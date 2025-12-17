@@ -29,6 +29,10 @@ async function run() {
     const usersCollection = db.collection("users");
     const assetsCollection = db.collection("assets");
     const requestsCollection = db.collection("requests");
+    const assignedAssetsCollection = db.collection("assignedAssets");
+    const employeeAffiliationsCollection = db.collection(
+      "employeeAffiliations"
+    );
 
     app.get("/packages", async (req, res) => {
       try {
@@ -68,7 +72,9 @@ async function run() {
         const user = await usersCollection.findOne(query);
 
         if (!user) {
-          return res.send({ role: "employee" });
+          return res.status(404).send({
+            message: "User not found",
+          });
         }
 
         res.send({ role: user.role });
@@ -164,12 +170,118 @@ async function run() {
     // requests related api
     app.post("/requests", async (req, res) => {
       const request = req.body;
-      try {  
+      try {
         const result = await requestsCollection.insertOne(request);
-        res.status(201).send(result); 
+        res.status(201).send(result);
       } catch (error) {
         console.error("Failed to create request:", error);
-        res.status(500).send({ message: "Failed to create request"});
+        res.status(500).send({ message: "Failed to create request" });
+      }
+    });
+
+    app.get("/requests", async (req, res) => {
+      const { email } = req.query;
+      try {
+        const query = { hrEmail: email };
+        const result = await requestsCollection.find(query).toArray();
+        res.status(200).send(result);
+      } catch (error) {
+        console.log(error);
+        res.status(500).send({ message: "unable to get requests" });
+      }
+    });
+
+    // approve request api
+    app.patch("/requests/:id/approve", async (req, res) => {
+      const requestId = req.params.id;
+      const { hrEmail } = req.body;
+
+      try {
+        // get request
+        const requestQuery = { _id: new ObjectId(requestId) };
+        const request = await requestsCollection.findOne(requestQuery);
+
+        //  Deduct asset quantity
+
+        const assetResult = await assetsCollection.updateOne(
+          {
+            _id: new ObjectId(request.assetId),
+            availableQuantity: { $gt: 0 }, // safety check
+          },
+          {
+            $inc: { availableQuantity: -1 },
+          }
+        );
+
+        if (assetResult.modifiedCount === 0) {
+          return res.status(400).send({ message: "Asset not available" });
+        }
+
+        //  Create assigned asset
+        const assetImageDoc = await assetsCollection.findOne(
+          { _id: new ObjectId(request.assetId) },
+          { projection: { productImage: 1, _id: 0 } }
+        );
+
+        const dataToAssign = {
+          assetId: request.assetId,
+          assetName: request.assetName,
+          assetImage: assetImageDoc?.productImage,
+          assetType: request.assetType,
+          employeeEmail: request.requesterEmail,
+          employeeName: request.requesterName,
+          hrEmail: request.hrEmail,
+          companyName: request.companyName,
+          assignmentDate: new Date(),
+          returnDate: null,
+          status: "assigned",
+        };
+        await assignedAssetsCollection.insertOne(dataToAssign);
+
+
+        
+        // Create affiliation if first time
+        const affiliationQuery = {
+          employeeEmail: request.requesterEmail,
+          companyName: request.companyName,
+        };
+        const existingAffiliation =
+          await employeeAffiliationsCollection.findOne(affiliationQuery);
+
+        if (!existingAffiliation) {
+          const companyLogoDoc = await usersCollection.findOne(
+            { email: hrEmail },
+            { projection: { companyLogo: 1, _id: 0 } }
+          );
+
+          const affiliationData = {
+            employeeEmail: request.requesterEmail,
+            employeeName: request.requesterName,
+            hrEmail: request.hrEmail,
+            companyLogo: companyLogoDoc?.companyLogo,
+            companyName: request.companyName,
+            affiliationDate: new Date(),
+            status: "active",
+          };
+          await employeeAffiliationsCollection.insertOne(affiliationData);
+        }
+
+        // update request status
+        await requestsCollection.updateOne(
+          { _id: new ObjectId(requestId) },
+          {
+            $set: {
+              requestStatus: "approved",
+              approvalDate: new Date(),
+              processedBy: hrEmail,
+            },
+          }
+        );
+
+        res.status(200).send({ message: "Request approved successfully" });
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Approval failed" });
       }
     });
 
