@@ -238,8 +238,6 @@ async function run() {
         };
         await assignedAssetsCollection.insertOne(dataToAssign);
 
-
-        
         // Create affiliation if first time
         const affiliationQuery = {
           employeeEmail: request.requesterEmail,
@@ -285,163 +283,187 @@ async function run() {
       }
     });
 
-
-    // Reject Rquest 
+    // Reject Rquest
     app.patch("/requests/:id/reject", async (req, res) => {
-  const requestId = req.params.id;
-  try {
-    const result = await requestsCollection.updateOne(
-      { _id: new ObjectId(requestId), requestStatus: "pending" },
-      {
-        $set: {
-          requestStatus: "rejected",
-        },
-      }
-    );
-
-    if (result.modifiedCount === 0) {
-      return res
-        .status(400)
-        .send({ message: "Request already processed or not found" });
-    }
-
-    res.status(200).send({ message: "Request rejected successfully" });
-  } catch (error) {
-    console.error(error);
-    res.status(500).send({ message: "Reject failed" });
-  }
-});
-      // ---------------------employee related api---------------------
-
-      // get my employees =========
- app.get("/employees", async (req, res) => {
-  const { email } = req.query;
-
-  try {
-   
-    const query = { hrEmail: email, status: "active" };
-    const allEmployees = await employeeAffiliationsCollection.find(query).toArray();
-
-    const employeeEmails = allEmployees.map(emp => emp.employeeEmail);
-    const uniqueEmployeeEmails = [...new Set(employeeEmails)];
-
- 
-    const imageURLS = await Promise.all(
-      uniqueEmployeeEmails.map(email =>
-        usersCollection.findOne(
-          { email },
-          { projection: { email: 1, photoURL: 1, _id: 0 } }
-        )
-      )
-    );
-
-  
-    const assetCounts = await assignedAssetsCollection.aggregate([
-      {
-        $match: {
-          status: "assigned",
-          hrEmail: email,
-        },
-      },
-      {
-        $group: {
-          _id: "$employeeEmail",
-          count: { $sum: 1 },
-        },
-      },
-    ]).toArray();
-
-
-    const assetCountMap = {};
-    assetCounts.forEach(item => {
-      assetCountMap[item._id] = item.count;
-    });
-
-
-    const result = allEmployees.map(emp => {
-      const match = imageURLS.find(img => img?.email === emp.employeeEmail);
-
-      return {
-        ...emp,
-        profileImage: match?.photoURL || null,
-        assetCount: assetCountMap[emp.employeeEmail] || 0,
-      };
-    });
-
-    res.status(200).send(result);
-
-  } catch (error) {
-    console.error(error);
-    res.status(500).send({ message: "unable to get employees" });
-  }
-});
- 
-
-  // Remove Employee =======
-  app.patch("/employees/:email/remove", async (req, res) => {
-  const employeeEmail = req.params.email;
-  const { hrEmail } = req.body;
-
-  try {
-    // get all active assigned assets 
-    const assignedAssetsQuery ={
-      employeeEmail,
-      hrEmail,
-      status: "assigned"
-    } 
-  const assignedAssets = await assignedAssetsCollection.find(assignedAssetsQuery).toArray();
-
-    // return each asset 
-    for (const asset of assignedAssets) {
-      // increase available quantity for each asset
-      await assetsCollection.updateOne(
-        { _id: new ObjectId(asset.assetId) },
-        { $inc: { availableQuantity: 1 } }
-      );
-
-      // mark asset as returned for each asset
-      await assignedAssetsCollection.updateOne(
-        { _id: asset._id },
-        {
-          $set: {
-            status: "returned",
-            returnDate: new Date()
+      const requestId = req.params.id;
+      try {
+        const result = await requestsCollection.updateOne(
+          { _id: new ObjectId(requestId), requestStatus: "pending" },
+          {
+            $set: {
+              requestStatus: "rejected",
+            },
           }
+        );
+
+        if (result.modifiedCount === 0) {
+          return res
+            .status(400)
+            .send({ message: "Request already processed or not found" });
         }
-      );
-    }
 
-    // set status to "inactive" on employee affiliation
-    const  affiliationUpdateQery = {
-        employeeEmail,
-        hrEmail,
-        status: "active"
+        res.status(200).send({ message: "Request rejected successfully" });
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Reject failed" });
       }
+    });
+    // ---------------------employee related api---------------------
 
-      const affiliationUpdateDoc =      {
-        $set: {
-          status: "inactive"
-        }
+    // get my employees =========
+    app.get("/employees", async (req, res) => {
+      const { email } = req.query;
+
+      try {
+        const query = { hrEmail: email, status: "active" };
+        const allEmployees = await employeeAffiliationsCollection
+          .find(query)
+          .toArray();
+
+        const employeeEmails = allEmployees.map((emp) => emp.employeeEmail);
+        const uniqueEmployeeEmails = [...new Set(employeeEmails)];
+
+        const imageURLS = await Promise.all(
+          uniqueEmployeeEmails.map((email) =>
+            usersCollection.findOne(
+              { email },
+              { projection: { email: 1, photoURL: 1, _id: 0 } }
+            )
+          )
+        );
+
+        const assetCounts = await assignedAssetsCollection
+          .aggregate([
+            {
+              $match: {
+                status: "assigned",
+                hrEmail: email,
+              },
+            },
+            {
+              $group: {
+                _id: "$employeeEmail",
+                count: { $sum: 1 },
+              },
+            },
+          ])
+          .toArray();
+
+        const assetCountMap = {};
+        assetCounts.forEach((item) => {
+          assetCountMap[item._id] = item.count;
+        });
+
+        const result = allEmployees.map((emp) => {
+          const match = imageURLS.find(
+            (img) => img?.email === emp.employeeEmail
+          );
+
+          return {
+            ...emp,
+            profileImage: match?.photoURL || null,
+            assetCount: assetCountMap[emp.employeeEmail] || 0,
+          };
+        });
+
+        res.status(200).send(result);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "unable to get employees" });
       }
-const affiliationResult = await employeeAffiliationsCollection.updateOne(affiliationUpdateQery,affiliationUpdateDoc);
-
-    if (affiliationResult.modifiedCount === 0) {
-      return res
-        .status(404)
-        .send({ message: "Employee not found or already inactive" });
-    }
-
-    res.status(200).send({
-      message: "Employee removed and assets returned successfully"
     });
 
-  } catch (error) {
-    console.error(error);
-    res.status(500).send({ message: "Failed to remove employee" });
-  }
-});
+    // Remove Employee =======
+    app.patch("/employees/:email/remove", async (req, res) => {
+      const employeeEmail = req.params.email;
+      const { hrEmail } = req.body;
 
+      try {
+        // get all active assigned assets
+        const assignedAssetsQuery = {
+          employeeEmail,
+          hrEmail,
+          status: "assigned",
+        };
+        const assignedAssets = await assignedAssetsCollection
+          .find(assignedAssetsQuery)
+          .toArray();
 
+        // return each asset
+        for (const asset of assignedAssets) {
+          // increase available quantity for each asset
+          await assetsCollection.updateOne(
+            { _id: new ObjectId(asset.assetId) },
+            { $inc: { availableQuantity: 1 } }
+          );
+
+          // mark asset as returned for each asset
+          await assignedAssetsCollection.updateOne(
+            { _id: asset._id },
+            {
+              $set: {
+                status: "returned",
+                returnDate: new Date(),
+              },
+            }
+          );
+        }
+
+        // set status to "inactive" on employee affiliation
+        const affiliationUpdateQery = {
+          employeeEmail,
+          hrEmail,
+          status: "active",
+        };
+
+        const affiliationUpdateDoc = {
+          $set: {
+            status: "inactive",
+          },
+        };
+        const affiliationResult =
+          await employeeAffiliationsCollection.updateOne(
+            affiliationUpdateQery,
+            affiliationUpdateDoc
+          );
+
+        if (affiliationResult.modifiedCount === 0) {
+          return res
+            .status(404)
+            .send({ message: "Employee not found or already inactive" });
+        }
+
+        res.status(200).send({
+          message: "Employee removed and assets returned successfully",
+        });
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Failed to remove employee" });
+      }
+    });
+
+    // my assigned assets
+    app.get("/my-asset", async (req, res) => {
+      try {
+        const { email, search, type } = req.query;
+
+        const query = { employeeEmail: email };
+
+        if (search) {
+          query.assetName = { $regex: search, $options: "i" };
+        }
+
+        if (type) {
+          query.assetType = type;
+        }
+
+        const result = await assignedAssetsCollection.find(query).toArray();
+        res.status(200).send(result);
+      } catch (error) {
+        console.log(error);
+        res.status(500).send({ message: "Can't fetch your assets" });
+      }
+    });
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
