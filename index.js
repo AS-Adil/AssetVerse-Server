@@ -313,7 +313,7 @@ async function run() {
 });
       // ---------------------employee related api---------------------
 
-      // get my employees 
+      // get my employees =========
  app.get("/employees", async (req, res) => {
   const { email } = req.query;
 
@@ -373,6 +373,71 @@ async function run() {
   } catch (error) {
     console.error(error);
     res.status(500).send({ message: "unable to get employees" });
+  }
+});
+ 
+
+  // Remove Employee =======
+  app.patch("/employees/:email/remove", async (req, res) => {
+  const employeeEmail = req.params.email;
+  const { hrEmail } = req.body;
+
+  try {
+    // get all active assigned assets 
+    const assignedAssetsQuery ={
+      employeeEmail,
+      hrEmail,
+      status: "assigned"
+    } 
+  const assignedAssets = await assignedAssetsCollection.find(assignedAssetsQuery).toArray();
+
+    // return each asset 
+    for (const asset of assignedAssets) {
+      // increase available quantity for each asset
+      await assetsCollection.updateOne(
+        { _id: new ObjectId(asset.assetId) },
+        { $inc: { availableQuantity: 1 } }
+      );
+
+      // mark asset as returned for each asset
+      await assignedAssetsCollection.updateOne(
+        { _id: asset._id },
+        {
+          $set: {
+            status: "returned",
+            returnDate: new Date()
+          }
+        }
+      );
+    }
+
+    // set status to "inactive" on employee affiliation
+    const  affiliationUpdateQery = {
+        employeeEmail,
+        hrEmail,
+        status: "active"
+      }
+
+      const affiliationUpdateDoc =      {
+        $set: {
+          status: "inactive"
+        }
+      }
+const affiliationResult = await employeeAffiliationsCollection.updateOne(affiliationUpdateQery,affiliationUpdateDoc);
+
+    if (affiliationResult.modifiedCount === 0) {
+      return res
+        .status(404)
+        .send({ message: "Employee not found or already inactive" });
+    }
+
+    res.status(200).send({
+      message: "Employee removed and assets returned successfully"
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).send({ message: "Failed to remove employee" });
   }
 });
 
