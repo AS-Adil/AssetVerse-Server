@@ -294,7 +294,7 @@ async function run() {
       { _id: new ObjectId(requestId), requestStatus: "pending" },
       {
         $set: {
-          requestStatus: "Rejected",
+          requestStatus: "rejected",
         },
       }
     );
@@ -311,6 +311,71 @@ async function run() {
     res.status(500).send({ message: "Reject failed" });
   }
 });
+      // ---------------------employee related api---------------------
+
+      // get my employees 
+ app.get("/employees", async (req, res) => {
+  const { email } = req.query;
+
+  try {
+   
+    const query = { hrEmail: email, status: "active" };
+    const allEmployees = await employeeAffiliationsCollection.find(query).toArray();
+
+    const employeeEmails = allEmployees.map(emp => emp.employeeEmail);
+    const uniqueEmployeeEmails = [...new Set(employeeEmails)];
+
+ 
+    const imageURLS = await Promise.all(
+      uniqueEmployeeEmails.map(email =>
+        usersCollection.findOne(
+          { email },
+          { projection: { email: 1, photoURL: 1, _id: 0 } }
+        )
+      )
+    );
+
+  
+    const assetCounts = await assignedAssetsCollection.aggregate([
+      {
+        $match: {
+          status: "assigned",
+          hrEmail: email,
+        },
+      },
+      {
+        $group: {
+          _id: "$employeeEmail",
+          count: { $sum: 1 },
+        },
+      },
+    ]).toArray();
+
+
+    const assetCountMap = {};
+    assetCounts.forEach(item => {
+      assetCountMap[item._id] = item.count;
+    });
+
+
+    const result = allEmployees.map(emp => {
+      const match = imageURLS.find(img => img?.email === emp.employeeEmail);
+
+      return {
+        ...emp,
+        profileImage: match?.photoURL || null,
+        assetCount: assetCountMap[emp.employeeEmail] || 0,
+      };
+    });
+
+    res.status(200).send(result);
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).send({ message: "unable to get employees" });
+  }
+});
+
 
 
     // Send a ping to confirm a successful connection
