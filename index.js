@@ -100,6 +100,29 @@ async function run() {
       }
     });
 
+    // update user
+    app.patch("/users/:email", async (req, res) => {
+      const { email } = req.params;
+      const updatedData = req.body; 
+
+      try {
+        const query = { email };
+        const updateDoc = {
+          $set: {
+            ...updatedData,
+            updatedAt: new Date(), 
+          },
+        };
+
+        const result = await usersCollection.updateOne(query, updateDoc);
+
+        res.status(200).send({ message: "User updated successfully" });
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Failed to update user" });
+      }
+    });
+
     // ----------- assets related api --------------
 
     app.post("/assets", async (req, res) => {
