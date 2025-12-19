@@ -103,14 +103,14 @@ async function run() {
     // update user
     app.patch("/users/:email", async (req, res) => {
       const { email } = req.params;
-      const updatedData = req.body; 
+      const updatedData = req.body;
 
       try {
         const query = { email };
         const updateDoc = {
           $set: {
             ...updatedData,
-            updatedAt: new Date(), 
+            updatedAt: new Date(),
           },
         };
 
@@ -136,21 +136,43 @@ async function run() {
       }
     });
 
+   // asset list
     app.get("/assets", async (req, res) => {
-      const { email, searchText } = req.query;
-      let query = {};
-      if (email) {
-        query.hrEmail = email;
-      }
       try {
-        if (searchText && searchText.trim()) {
+        const { email, searchText = "", page = 1, limit = 5 } = req.query;
+
+        const pageNumber = parseInt(page);
+        const pageSize = parseInt(limit);
+        const skip = (pageNumber - 1) * pageSize;
+
+        let query = {};
+
+        if (email) {
+          query.hrEmail = email;
+        }
+
+        if (searchText.trim()) {
           query.productName = { $regex: searchText, $options: "i" };
         }
-        const result = await assetsCollection.find(query).toArray();
-        res.status(200).send(result);
+
+        const totalAssets = await assetsCollection.countDocuments(query);
+
+        const assets = await assetsCollection
+          .find(query)
+          .skip(skip)
+          .limit(pageSize)
+          .sort({ dateAdded: -1 })
+          .toArray();
+
+        res.status(200).send({
+          totalAssets,
+          currentPage: pageNumber,
+          totalPages: Math.ceil(totalAssets / pageSize),
+          assets,
+        });
       } catch (error) {
-        console.log(error);
-        res.status(500).send({ message: "Failed to get Assets" });
+        console.error(error);
+        res.status(500).send({ message: "Failed to get assets" });
       }
     });
 
@@ -529,6 +551,74 @@ async function run() {
       } catch (error) {
         console.error(error);
         res.status(500).send({ message: "Can't get team members" });
+      }
+    });
+
+    // asset type for analytics
+    app.get("/asset-types", async (req, res) => {
+      try {
+        const hrEmail = req.query.email;
+
+        const result = await assetsCollection
+          .aggregate([
+            { $match: { hrEmail } },
+            {
+              $group: {
+                _id: "$productType",
+                count: { $sum: 1 },
+              },
+            },
+            {
+              $project: {
+                _id: 0,
+                type: "$_id",
+                count: 1,
+              },
+            },
+          ])
+          .toArray();
+
+        res.status(200).send(result);
+      } catch (error) {
+        console.error(error);
+        res
+          .status(500)
+          .send({ message: "Failed to load asset type analytics" });
+      }
+    });
+
+    // top 5 requested asset
+    app.get("/top-assets", async (req, res) => {
+      try {
+        const hrEmail = req.query.email;
+
+        const result = await requestsCollection
+          .aggregate([
+            { $match: { hrEmail } },
+            {
+              $group: {
+                _id: "$assetName",
+                requests: { $sum: 1 },
+              },
+            },
+            { $sort: { requests: -1 } },
+            { $limit: 5 },
+            {
+              $project: {
+                _id: 0,
+                name: "$_id",
+                requests: 1,
+              },
+            },
+          ])
+          .toArray();
+
+        res.status(200).send(result);
+      } catch (error) {
+        console.error(error);
+        res
+          .status(500)
+          .send({ message: "Failed to load top assets analytics" });
       }
     });
 
