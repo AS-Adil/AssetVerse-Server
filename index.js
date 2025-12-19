@@ -310,7 +310,7 @@ async function run() {
     });
     // ---------------------employee related api---------------------
 
-    // get my employees =========
+    // get my-all-employees =========
     app.get("/employees", async (req, res) => {
       const { email } = req.query;
 
@@ -409,28 +409,20 @@ async function run() {
           );
         }
 
-        // set status to "inactive" on employee affiliation
-        const affiliationUpdateQery = {
+        // deleting affiliation
+        const affiliationdeleteQery = {
           employeeEmail,
           hrEmail,
-          status: "active",
         };
 
-        const affiliationUpdateDoc = {
-          $set: {
-            status: "inactive",
-          },
-        };
-        const affiliationResult =
-          await employeeAffiliationsCollection.updateOne(
-            affiliationUpdateQery,
-            affiliationUpdateDoc
-          );
+        const deleteResult = await employeeAffiliationsCollection.deleteOne(
+          affiliationdeleteQery
+        );
 
-        if (affiliationResult.modifiedCount === 0) {
+        if (deleteResult.deletedCount === 0) {
           return res
             .status(404)
-            .send({ message: "Employee not found or already inactive" });
+            .send({ message: "Employee affiliation not found" });
         }
 
         res.status(200).send({
@@ -462,6 +454,58 @@ async function run() {
       } catch (error) {
         console.log(error);
         res.status(500).send({ message: "Can't fetch your assets" });
+      }
+    });
+
+    //all the affiliated company
+    app.get("/my-companies", async (req, res) => {
+      const { email } = req.query;
+
+      try {
+        const companies = await employeeAffiliationsCollection
+          .find({ employeeEmail: email, status: "active" })
+          .toArray();
+
+        res.status(200).send(companies);
+      } catch (error) {
+        console.log(error);
+        res.status(500).send({ message: "Can't Get Companies" });
+      }
+    });
+
+    // Team member per company
+    app.get("/company-team", async (req, res) => {
+      const { companyName } = req.query;
+
+      try {
+        const affiliations = await employeeAffiliationsCollection
+          .find({ companyName, status: "active" })
+          .toArray();
+
+        if (affiliations.length === 0) {
+          return res.status(200).send([]);
+        }
+
+        const emails = affiliations.map((a) => a.employeeEmail);
+
+        const users = await usersCollection
+          .find(
+            { email: { $in: emails } },
+            {
+              projection: {
+                displayName: 1,
+                email: 1,
+                photoURL: 1,
+                dateOfBirth: 1,
+              },
+            }
+          )
+          .toArray();
+
+        res.status(200).send(users);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Can't get team members" });
       }
     });
 
