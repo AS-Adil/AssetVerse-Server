@@ -87,6 +87,7 @@ async function run() {
       }
     });
 
+    // get user
     app.get("/users", async (req, res) => {
       const { email } = req.query;
       const query = { email };
@@ -100,26 +101,99 @@ async function run() {
       }
     });
 
-    // update user
-    app.patch("/users/:email", async (req, res) => {
+    // update employee profile
+    app.patch("/update-employee-profle/:email", async (req, res) => {
       const { email } = req.params;
-      const updatedData = req.body;
+      const { displayName, dateOfBirth, photoURL } = req.body;
 
       try {
-        const query = { email };
-        const updateDoc = {
-          $set: {
-            ...updatedData,
-            updatedAt: new Date(),
-          },
-        };
+     
+        await usersCollection.updateOne(
+          { email },
+          {
+            $set: {
+              displayName,
+              dateOfBirth,
+              photoURL,
+              updatedAt: new Date(),
+            },
+          }
+        );
 
-        const result = await usersCollection.updateOne(query, updateDoc);
+      
+        await Promise.all([
+          employeeAffiliationsCollection.updateMany(
+            { employeeEmail: email },
+            { $set: { employeeName: displayName } }
+          ),
 
-        res.status(200).send({ message: "User updated successfully" });
+          assignedAssetsCollection.updateMany(
+            { employeeEmail: email },
+            { $set: { employeeName: displayName } }
+          ),
+
+          requestsCollection.updateMany(
+            { requesterEmail: email },
+            { $set: { requesterName: displayName } }
+          ),
+        ]);
+
+        res.status(200).send({
+          message: "Employee profile updated successfully",
+        });
       } catch (error) {
         console.error(error);
-        res.status(500).send({ message: "Failed to update user" });
+        res.status(500).send({
+          message: "Failed to update employee profile",
+        });
+      }
+    });
+
+    //update hr profile
+    app.patch("/update-hr-profile/:email", async (req, res) => {
+      const { email } = req.params;
+      const { companyName, companyLogo, dateOfBirth } = req.body;
+
+      try {
+        await usersCollection.updateOne(
+          { email },
+          {
+            $set: {
+              companyName,
+              companyLogo,
+              dateOfBirth,
+              updatedAt: new Date(),
+            },
+          }
+        );
+
+        await Promise.all([
+          assetsCollection.updateMany(
+            { hrEmail: email },
+            { $set: { companyName } }
+          ),
+
+          employeeAffiliationsCollection.updateMany(
+            { hrEmail: email },
+            { $set: { companyName, companyLogo } }
+          ),
+
+          requestsCollection.updateMany(
+            { hrEmail: email },
+            { $set: { companyName } }
+          ),
+          assignedAssetsCollection.updateMany(
+            { hrEmail: email },
+            { $set: { companyName } }
+          ),
+        ]);
+
+        res.status(200).send({
+          message: "HR profile and company info updated successfully",
+        });
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Failed to update profile" });
       }
     });
 
@@ -136,10 +210,25 @@ async function run() {
       }
     });
 
-   // asset list
+    // get all asset from collection
+    app.get("/assets-all", async (req, res) => {
+      try {
+        const result = await assetsCollection
+          .find({})
+          .sort({ dateAdded: -1 })
+          .toArray();
+
+        res.status(200).send(result);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Can't get assets" });
+      }
+    });
+
+    // asset list
     app.get("/assets", async (req, res) => {
       try {
-        const { email, searchText = "", page = 1, limit = 5 } = req.query;
+        const { email, searchText = "", page = 1, limit = 10 } = req.query;
 
         const pageNumber = parseInt(page);
         const pageSize = parseInt(limit);
@@ -228,7 +317,10 @@ async function run() {
       const { email } = req.query;
       try {
         const query = { hrEmail: email };
-        const result = await requestsCollection.find(query).toArray();
+        const result = await requestsCollection
+          .find(query)
+          .sort({ requestDate: -1 })
+          .toArray();
         res.status(200).send(result);
       } catch (error) {
         console.log(error);
@@ -246,12 +338,37 @@ async function run() {
         const requestQuery = { _id: new ObjectId(requestId) };
         const request = await requestsCollection.findOne(requestQuery);
 
-        //  Deduct asset quantity
+        if (request.requestStatus !== "pending") {
+          return res.status(400).send({ message: "Request already processed" });
+        }
 
+        // check affiliation
+        const affiliationQuery = {
+          employeeEmail: request.requesterEmail,
+          companyName: request.companyName,
+        };
+        const existingAffiliation =
+          await employeeAffiliationsCollection.findOne(affiliationQuery);
+
+        if (!existingAffiliation) {
+          // get hrInfo
+          const hrInfo = await usersCollection.findOne({ email: hrEmail });
+          if (!hrInfo) {
+            return res.status(404).send({ message: "HR not found" });
+          }
+          // enforce package limit
+          if (hrInfo.currentEmployees >= hrInfo.packageLimit) {
+            return res.status(403).send({
+              message: "Package limit reached. Upgrade required.",
+            });
+          }
+        }
+
+        //  Deduct asset quantity-------
         const assetResult = await assetsCollection.updateOne(
           {
             _id: new ObjectId(request.assetId),
-            availableQuantity: { $gt: 0 }, // safety check
+            availableQuantity: { $gt: 0 }, // check stock is 0>1
           },
           {
             $inc: { availableQuantity: -1 },
@@ -284,13 +401,6 @@ async function run() {
         await assignedAssetsCollection.insertOne(dataToAssign);
 
         // Create affiliation if first time
-        const affiliationQuery = {
-          employeeEmail: request.requesterEmail,
-          companyName: request.companyName,
-        };
-        const existingAffiliation =
-          await employeeAffiliationsCollection.findOne(affiliationQuery);
-
         if (!existingAffiliation) {
           const companyLogoDoc = await usersCollection.findOne(
             { email: hrEmail },
@@ -307,6 +417,12 @@ async function run() {
             status: "active",
           };
           await employeeAffiliationsCollection.insertOne(affiliationData);
+
+          // update currentEmployee
+          await usersCollection.updateOne(
+            { email: hrEmail },
+            { $inc: { currentEmployees: 1 } }
+          );
         }
 
         // update request status
@@ -469,6 +585,12 @@ async function run() {
             .status(404)
             .send({ message: "Employee affiliation not found" });
         }
+
+        // change value of currentEmplyee for hr
+        await usersCollection.updateOne(
+          { email: hrEmail, currentEmployees: { $gt: 0 } },
+          { $inc: { currentEmployees: -1 } }
+        );
 
         res.status(200).send({
           message: "Employee removed and assets returned successfully",
