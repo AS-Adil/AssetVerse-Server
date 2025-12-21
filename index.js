@@ -146,9 +146,9 @@ async function run() {
       const { email } = req.query;
       const query = { email };
 
-      // if (email !== req.decoded_email) {
-      // return res.status(403).send({ message: "Forbidden access" });
-      // }
+      if (email !== req.decoded_email) {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
 
       try {
         const result = await usersCollection.findOne(query);
@@ -268,9 +268,16 @@ async function run() {
 
     // get all asset from collection
     app.get("/assets-all", async (req, res) => {
+      const email = req.query.email;
+      const query = {};
+
+      if (email) {
+        query.hrEmail = email;
+      }
+
       try {
         const result = await assetsCollection
-          .find({})
+          .find( query )
           .sort({ dateAdded: -1 })
           .toArray();
 
@@ -497,6 +504,53 @@ async function run() {
       } catch (error) {
         console.error(error);
         res.status(500).send({ message: "Approval failed" });
+      }
+    });
+
+    //assign directly
+    app.post("/assign-directly", verifyFBToken, verifyHR, async (req, res) => {
+      const { assetId, employeeEmail, employeeName, hrEmail, companyName } =
+        req.body;
+
+      try {
+        // check asset availability
+        const asset = await assetsCollection.findOne({
+          _id: new ObjectId(assetId),
+          hrEmail,
+          availableQuantity: { $gt: 0 },
+        });
+
+        if (!asset) {
+          return res.status(400).send({ message: "Asset not available" });
+        }
+
+        // deduct
+        await assetsCollection.updateOne(
+          { _id: asset._id },
+          { $inc: { availableQuantity: -1 } }
+        );
+
+        // assign asset
+        const assignedAsset = {
+          assetId: asset._id,
+          assetName: asset.productName,
+          assetImage: asset.productImage,
+          assetType: asset.productType,
+          employeeEmail,
+          employeeName,
+          hrEmail,
+          companyName,
+          assignmentDate: new Date(),
+          returnDate: null,
+          status: "assigned",
+        };
+
+        await assignedAssetsCollection.insertOne(assignedAsset);
+
+        res.status(200).send({ message: "Asset assigned successfully" });
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Direct assignment failed" });
       }
     });
 
@@ -859,7 +913,6 @@ async function run() {
 
         success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancelled?paymentId=${paymentResult.insertedId}`,
-
       });
 
       res.send({ url: session.url });
@@ -926,32 +979,31 @@ async function run() {
     });
 
     //payment fail
-app.patch("/payment-cancelled", async (req, res) => {
-  const { paymentId } = req.body;
+    app.patch("/payment-cancelled", async (req, res) => {
+      const { paymentId } = req.body;
 
-  if (!paymentId) {
-    return res.status(400).send({ message: "paymentId is required" });
-  }
+      if (!paymentId) {
+        return res.status(400).send({ message: "paymentId is required" });
+      }
 
-  let objectId;
-  try {
-    objectId = new ObjectId(paymentId);
-  } catch (error) {
-    return res.status(400).send({ message: "Invalid paymentId" });
-  }
+      let objectId;
+      try {
+        objectId = new ObjectId(paymentId);
+      } catch (error) {
+        return res.status(400).send({ message: "Invalid paymentId" });
+      }
 
-  const result = await paymentsCollection.updateOne(
-    { _id: objectId },
-    { $set: { status: "failed", paymentDate: new Date() } }
-  );
+      const result = await paymentsCollection.updateOne(
+        { _id: objectId },
+        { $set: { status: "failed", paymentDate: new Date() } }
+      );
 
-  if (result.matchedCount === 0) {
-    return res.status(404).send({ message: "Payment not found" });
-  }
+      if (result.matchedCount === 0) {
+        return res.status(404).send({ message: "Payment not found" });
+      }
 
-  res.send({ success: true });
-});
-
+      res.send({ success: true });
+    });
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
