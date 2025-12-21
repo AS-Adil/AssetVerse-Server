@@ -858,7 +858,8 @@ async function run() {
         },
 
         success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancelled`,
+        cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancelled?paymentId=${paymentResult.insertedId}`,
+
       });
 
       res.send({ url: session.url });
@@ -910,7 +911,7 @@ async function run() {
         {
           $set: {
             subscription: packageName,
-            employeeLimit: Number(employeeLimit),
+            packageLimit: Number(employeeLimit),
           },
         }
       );
@@ -923,6 +924,34 @@ async function run() {
         status: paymentDoc.status,
       });
     });
+
+    //payment fail
+app.patch("/payment-cancelled", async (req, res) => {
+  const { paymentId } = req.body;
+
+  if (!paymentId) {
+    return res.status(400).send({ message: "paymentId is required" });
+  }
+
+  let objectId;
+  try {
+    objectId = new ObjectId(paymentId);
+  } catch (error) {
+    return res.status(400).send({ message: "Invalid paymentId" });
+  }
+
+  const result = await paymentsCollection.updateOne(
+    { _id: objectId },
+    { $set: { status: "failed", paymentDate: new Date() } }
+  );
+
+  if (result.matchedCount === 0) {
+    return res.status(404).send({ message: "Payment not found" });
+  }
+
+  res.send({ success: true });
+});
+
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
