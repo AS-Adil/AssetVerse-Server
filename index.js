@@ -21,7 +21,7 @@ app.use(cors());
 
 const verifyFBToken = async (req, res, next) => {
   const token = req.headers?.authorization;
-  console.log("=============--------------==========", token);
+  // console.log("=============--------------==========", token);
 
   if (!token) {
     return res.status(401).send({ message: "unauthzorized access" });
@@ -30,7 +30,7 @@ const verifyFBToken = async (req, res, next) => {
     const idToken = token.split(" ")[1];
     const decoded = await admin.auth().verifyIdToken(idToken);
     req.decoded_email = decoded.email;
-    console.log("----------decoded----------", decoded);
+    // console.log("----------decoded----------", decoded);
     next();
   } catch (error) {
     console.log(error);
@@ -142,11 +142,11 @@ async function run() {
     });
 
     // get user
-    app.get("/users",verifyFBToken,  async (req, res) => {
+    app.get("/users", verifyFBToken, async (req, res) => {
       const { email } = req.query;
       const query = { email };
 
-      // if (email !== req.decoded_email) { 
+      // if (email !== req.decoded_email) {
       // return res.status(403).send({ message: "Forbidden access" });
       // }
 
@@ -369,7 +369,7 @@ async function run() {
       }
     });
 
-    app.get("/requests", verifyFBToken, verifyHR,  async (req, res) => {
+    app.get("/requests", verifyFBToken, verifyHR, async (req, res) => {
       const { email } = req.query;
       try {
         const query = { hrEmail: email };
@@ -658,15 +658,14 @@ async function run() {
     });
 
     // my assigned assets
-    app.get("/my-asset",verifyFBToken,verifyEmployee, async (req, res) => {
+    app.get("/my-asset", verifyFBToken, verifyEmployee, async (req, res) => {
       const { email, search, type } = req.query;
 
-          if (email !== req.decoded_email) {
-      return res.status(403).send({ message: "Forbidden access" });
-    }
+      if (email !== req.decoded_email) {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
 
       try {
-
         const query = { employeeEmail: email };
 
         if (search) {
@@ -686,20 +685,25 @@ async function run() {
     });
 
     //all the affiliated company
-    app.get("/my-companies", verifyFBToken, verifyEmployee, async (req, res) => {
-      const { email } = req.query;
+    app.get(
+      "/my-companies",
+      verifyFBToken,
+      verifyEmployee,
+      async (req, res) => {
+        const { email } = req.query;
 
-      try {
-        const companies = await employeeAffiliationsCollection
-          .find({ employeeEmail: email, status: "active" })
-          .toArray();
+        try {
+          const companies = await employeeAffiliationsCollection
+            .find({ employeeEmail: email, status: "active" })
+            .toArray();
 
-        res.status(200).send(companies);
-      } catch (error) {
-        console.log(error);
-        res.status(500).send({ message: "Can't Get Companies" });
+          res.status(200).send(companies);
+        } catch (error) {
+          console.log(error);
+          res.status(500).send({ message: "Can't Get Companies" });
+        }
       }
-    });
+    );
 
     // Team member per company
     app.get("/company-team", async (req, res) => {
@@ -803,6 +807,121 @@ async function run() {
           .status(500)
           .send({ message: "Failed to load top assets analytics" });
       }
+    });
+
+    //====================== pyment related api=======================
+
+    app.post("/payment-checkout-session", verifyFBToken, async (req, res) => {
+      const { hrEmail, packageName, employeeLimit, amount } = req.body;
+
+      if (hrEmail !== req.decoded_email) {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+
+      //create pending payment record
+      const pendingPayment = {
+        hrEmail,
+        packageName,
+        employeeLimit,
+        amount,
+        status: "pending",
+        paymentDate: new Date(),
+      };
+
+      const paymentResult = await paymentsCollection.insertOne(pendingPayment);
+
+      // create Stripe session
+      const session = await stripe.checkout.sessions.create({
+        mode: "payment",
+        payment_method_types: ["card"],
+
+        line_items: [
+          {
+            price_data: {
+              currency: "usd",
+              unit_amount: amount * 100,
+              product_data: {
+                name: `${packageName} Package`,
+              },
+            },
+            quantity: 1,
+          },
+        ],
+
+        customer_email: hrEmail,
+
+        metadata: {
+          paymentId: paymentResult.insertedId.toString(),
+          packageName,
+          employeeLimit,
+          hrEmail,
+        },
+
+        success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancelled`,
+      });
+
+      res.send({ url: session.url });
+    });
+
+    //payment success
+    app.patch("/payment-success", async (req, res) => {
+      const sessionId = req.query.session_id;
+
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+      if (session.payment_status !== "paid") {
+        return res.send({ success: false });
+      }
+
+      const transactionId = session.payment_intent;
+      const { packageName, employeeLimit, hrEmail } = session.metadata;
+
+      // prevent duplicate processing
+      const existingPayment = await paymentsCollection.findOne({
+        transactionId,
+      });
+      if (existingPayment) {
+        return res.send({
+          packageName: existingPayment.packageName,
+          employeeLimit: existingPayment.employeeLimit,
+          amount: existingPayment.amount,
+          transactionId: existingPayment.transactionId,
+          status: existingPayment.status,
+        });
+      }
+
+      const paymentDoc = {
+        hrEmail,
+        packageName,
+        employeeLimit: Number(employeeLimit),
+        amount: session.amount_total / 100,
+        transactionId,
+        status: "completed",
+        paymentDate: new Date(),
+      };
+
+      // save payment
+      await paymentsCollection.insertOne(paymentDoc);
+
+      // update HR subscription
+      await usersCollection.updateOne(
+        { email: hrEmail },
+        {
+          $set: {
+            subscription: packageName,
+            employeeLimit: Number(employeeLimit),
+          },
+        }
+      );
+
+      res.send({
+        packageName: paymentDoc.packageName,
+        employeeLimit: paymentDoc.employeeLimit,
+        amount: paymentDoc.amount,
+        transactionId: paymentDoc.transactionId,
+        status: paymentDoc.status,
+      });
     });
 
     // Send a ping to confirm a successful connection
