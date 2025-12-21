@@ -3,11 +3,40 @@ const cors = require("cors");
 const app = express();
 require("dotenv").config();
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+
+const admin = require("firebase-admin");
+const serviceAccount = require("./assertverse-firebase-adminsdk.json");
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+
 const port = process.env.PORT || 3000;
+
+const stripe = require("stripe")(process.env.STRIPE_SECRET);
 
 // middleware
 app.use(express.json());
 app.use(cors());
+
+const verifyFBToken = async (req, res, next) => {
+  const token = req.headers?.authorization;
+  console.log("=============--------------==========", token);
+
+  if (!token) {
+    return res.status(401).send({ message: "unauthzorized access" });
+  }
+  try {
+    const idToken = token.split(" ")[1];
+    const decoded = await admin.auth().verifyIdToken(idToken);
+    req.decoded_email = decoded.email;
+    console.log("----------decoded----------", decoded);
+    next();
+  } catch (error) {
+    console.log(error);
+    return res.status(401).send({ message: "unauthorized access" });
+  }
+};
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.ova35yv.mongodb.net/?appName=Cluster0`;
 
@@ -33,6 +62,31 @@ async function run() {
     const employeeAffiliationsCollection = db.collection(
       "employeeAffiliations"
     );
+    const paymentsCollection = db.collection("payments");
+
+    const verifyHR = async (req, res, next) => {
+      const email = req.decoded_email;
+      const query = { email };
+      const user = await usersCollection.findOne(query);
+
+      if (!user || user.role !== "hr") {
+        return res.status(403).send({ message: "Forbidden Access" });
+      }
+
+      next();
+    };
+
+    const verifyEmployee = async (req, res, next) => {
+      const email = req.decoded_email;
+      const query = { email };
+      const user = await usersCollection.findOne(query);
+
+      if (!user || user.role !== "employee") {
+        return res.status(403).send({ message: "Forbidden Access" });
+      }
+
+      next();
+    };
 
     app.get("/packages", async (req, res) => {
       try {
@@ -88,9 +142,13 @@ async function run() {
     });
 
     // get user
-    app.get("/users", async (req, res) => {
+    app.get("/users",verifyFBToken,  async (req, res) => {
       const { email } = req.query;
       const query = { email };
+
+      // if (email !== req.decoded_email) { 
+      // return res.status(403).send({ message: "Forbidden access" });
+      // }
 
       try {
         const result = await usersCollection.findOne(query);
@@ -107,7 +165,6 @@ async function run() {
       const { displayName, dateOfBirth, photoURL } = req.body;
 
       try {
-     
         await usersCollection.updateOne(
           { email },
           {
@@ -120,7 +177,6 @@ async function run() {
           }
         );
 
-      
         await Promise.all([
           employeeAffiliationsCollection.updateMany(
             { employeeEmail: email },
@@ -226,7 +282,7 @@ async function run() {
     });
 
     // asset list
-    app.get("/assets", async (req, res) => {
+    app.get("/assets", verifyFBToken, verifyHR, async (req, res) => {
       try {
         const { email, searchText = "", page = 1, limit = 10 } = req.query;
 
@@ -313,7 +369,7 @@ async function run() {
       }
     });
 
-    app.get("/requests", async (req, res) => {
+    app.get("/requests", verifyFBToken, verifyHR,  async (req, res) => {
       const { email } = req.query;
       try {
         const query = { hrEmail: email };
@@ -358,7 +414,7 @@ async function run() {
           }
           // enforce package limit
           if (hrInfo.currentEmployees >= hrInfo.packageLimit) {
-            return res.status(403).send({
+            return res.status(404).send({
               message: "Package limit reached. Upgrade required.",
             });
           }
@@ -472,7 +528,7 @@ async function run() {
     // ---------------------employee related api---------------------
 
     // get my-all-employees =========
-    app.get("/employees", async (req, res) => {
+    app.get("/employees", verifyFBToken, verifyHR, async (req, res) => {
       const { email } = req.query;
 
       try {
@@ -602,9 +658,14 @@ async function run() {
     });
 
     // my assigned assets
-    app.get("/my-asset", async (req, res) => {
+    app.get("/my-asset",verifyFBToken,verifyEmployee, async (req, res) => {
+      const { email, search, type } = req.query;
+
+          if (email !== req.decoded_email) {
+      return res.status(403).send({ message: "Forbidden access" });
+    }
+
       try {
-        const { email, search, type } = req.query;
 
         const query = { employeeEmail: email };
 
@@ -625,7 +686,7 @@ async function run() {
     });
 
     //all the affiliated company
-    app.get("/my-companies", async (req, res) => {
+    app.get("/my-companies", verifyFBToken, verifyEmployee, async (req, res) => {
       const { email } = req.query;
 
       try {
@@ -677,7 +738,7 @@ async function run() {
     });
 
     // asset type for analytics
-    app.get("/asset-types", async (req, res) => {
+    app.get("/asset-types", verifyFBToken, verifyHR, async (req, res) => {
       try {
         const hrEmail = req.query.email;
 
@@ -710,7 +771,7 @@ async function run() {
     });
 
     // top 5 requested asset
-    app.get("/top-assets", async (req, res) => {
+    app.get("/top-assets", verifyFBToken, verifyHR, async (req, res) => {
       try {
         const hrEmail = req.query.email;
 
