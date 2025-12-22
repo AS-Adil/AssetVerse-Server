@@ -5,7 +5,19 @@ require("dotenv").config();
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 const admin = require("firebase-admin");
-const serviceAccount = require("./assertverse-firebase-adminsdk.json");
+// const serviceAccount = require("./assertverse-firebase-adminsdk.json");
+
+
+
+
+
+const decoded = Buffer.from(process.env.FB_SERVICE_KEY, 'base64').toString('utf8')
+const serviceAccount = JSON.parse(decoded);
+
+
+
+
+
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -50,8 +62,8 @@ const client = new MongoClient(uri, {
 });
 async function run() {
   try {
-    // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // off this
+    // await client.connect();
 
     const db = client.db("assetverse");
     const packagesCollection = db.collection("packages");
@@ -160,7 +172,7 @@ async function run() {
     });
 
     // update employee profile
-    app.patch("/update-employee-profle/:email", async (req, res) => {
+    app.patch("/update-employee-profile/:email", async (req, res) => {
       const { email } = req.params;
       const { displayName, dateOfBirth, photoURL } = req.body;
 
@@ -277,7 +289,7 @@ async function run() {
 
       try {
         const result = await assetsCollection
-          .find( query )
+          .find(query)
           .sort({ dateAdded: -1 })
           .toArray();
 
@@ -1005,8 +1017,25 @@ async function run() {
       res.send({ success: true });
     });
 
-    // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
+    // get payment history for HR
+    app.get("/payments", verifyFBToken, verifyHR, async (req, res) => {
+      const { email } = req.query;
+
+      try {
+        const payments = await paymentsCollection
+          .find({ hrEmail: email })
+          .sort({ paymentDate: -1 })
+          .toArray();
+
+        res.status(200).send(payments);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Failed to load payment history" });
+      }
+    });
+
+    // off this
+    // await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
     );

@@ -1,3 +1,4 @@
 node_modules
 .env
 assertverse-firebase-adminsdk.json
+.vercel
